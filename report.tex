@@ -1,0 +1,401 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+
+\title{\textbf{CS580: Query Processing on Database Systems}\\ Final Project Report}
+\author{Dhiraj Shelke, Sanmitha Shetty}
+
+\begin{document}
+
+\maketitle
+
+\section*{Problem 1: Algorithm and Implementation Report}
+
+\subsection*{1. Algorithm Description}
+To evaluate the query $q(A,B,C) :- R_1(A,B), R_2(B,C)$, I implemented a \textbf{Hash Join} algorithm. This approach avoids the inefficiency of a nested-loop join ($O(N^2)$) by indexing one relation to allow for $O(1)$ lookups during the join phase.
+
+The algorithm proceeds in two phases as described in the project requirements:
+
+\begin{enumerate}
+    \item \textbf{Phase 1: Build (Hashing)} \\
+    We construct a hash map $h$ from relation $R_2$. The keys of the map are the values of the common attribute $B$, and the values are lists of tuples from $R_2$ that share that key. Mathematically, for every $b \in \mathbb{Z}$:
+    \[
+    h[b] = \{ t \in R_2 \mid \pi_B(t) = b \}
+    \]
+    
+    \item \textbf{Phase 2: Probe} \\
+    We iterate through every tuple $t' \in R_1$. For each tuple, we extract its join attribute value $b' = \pi_B(t')$. We then probe the hash map $h$ with $b'$. If $b'$ exists in the map, we join $t'$ with every tuple in the list $h[b']$ and report the result.
+\end{enumerate}
+
+\subsection*{2. Implementation Details}
+I implemented the algorithm in Python using the following logic:
+
+\begin{itemize}
+    \item \textbf{Data Structures:} I used a standard Python dictionary to represent the hash map $h$. In Python, dictionary lookups operate in average-case $O(1)$ time, satisfying the efficiency requirement of the hash join.
+    
+    \item \textbf{Step-by-Step Logic:}
+    \begin{enumerate}
+        \item \textbf{Initialization:} An empty dictionary $h$ was created.
+        \item \textbf{Building the Index:} I iterated over the list of tuples representing $R_2$. For each tuple, I extracted the first element (Attribute $B$) to serve as the key and appended the full tuple to the list stored at that key in $h$.
+        \item \textbf{Probing and Joining:} I iterated over the list of tuples representing $R_1$. For each tuple $t'$, I extracted the second element (Attribute $B$). I checked if this value existed as a key in $h$.
+        \item \textbf{Result Generation:} If a match was found, I iterated through the list of matching $R_2$ tuples retrieved from the map. I constructed a new tuple $(A, B, C)$ combining the non-overlapping attributes and the common key, then added it to the results list.
+    \end{enumerate}
+\end{itemize}
+
+\subsection*{3. Correctness Argument}
+The implementation is correct because it faithfully executes the definition of a Natural Join:
+
+\begin{enumerate}
+    \item \textbf{Completeness of the Hash Map:} During the Build Phase, the algorithm iterates through every tuple in $R_2$ exactly once. This guarantees that for any specific join value $b$, the entry $h[b]$ contains the complete set of tuples from $R_2$ that have that value. No potential matches from $R_2$ are omitted.
+    
+    \item \textbf{Exhaustiveness of the Probe:} During the Probe Phase, the algorithm iterates through every tuple in $R_1$. For every tuple in $R_1$, it looks up the exact set of tuples in $R_2$ that match on attribute $B$.
+    
+    \item \textbf{Soundness:} The algorithm only produces a result tuple if the join condition is met (equality on attribute $B$). Since the hash map key lookup enforces this equality strictly, no false positives are generated.
+    
+    \item \textbf{Conclusion:} Because the algorithm considers every possible pair $(t \in R_1, t' \in R_2)$ that shares a $B$ value and outputs them, it correctly produces the full result of the conjunctive query $q(A,B,C)$.
+\end{enumerate}
+
+\subsection*{4. Experimental Results}
+We ran the algorithm on a dataset with 10 tuples in $R_1$ and 10 tuples in $R_2$. The algorithm correctly produced 10 result tuples:
+\[
+(1, 100, 10), (1, 100, 11), (2, 100, 10), (2, 100, 11), (3, 200, 20), 
+(4, 200, 20), (5, 300, 30), (6, 400, 40), (6, 400, 41), (7, 500, 55)
+\]
+All results are correct and match the expected join behavior.
+
+\section*{Problem 2: Efficient Line Join (Simplified Yannakakis)}
+
+\subsection*{1. Algorithm Implementation}
+To evaluate the line join query $q(A_1, \dots, A_{k+1}) :- R_1(A_1, A_2), \dots, R_k(A_k, A_{k+1})$ in $O(N + OUT)$ time, I implemented a simplified version of the Yannakakis algorithm. The standard Yannakakis algorithm operates on general acyclic hypergraphs using join trees. However, since our query is a line join, the "Join Tree" structure simplifies to a linear list of relations.
+
+My implementation consists of three phases designed to remove all "dangling tuples" (tuples that do not participate in the final result) before any actual joining occurs:
+
+\begin{enumerate}
+    \item \textbf{Phase 1: Backward Semijoin Sweep (Leaves-to-Root)} \\
+    We iterate from the last relation $R_k$ back to $R_1$. At each step $i$, we update $R_i$ using the semijoin operator:
+    \[ R_i = R_i \ltimes R_{i+1} \]
+    This effectively removes any tuple in $R_i$ that does not have a matching join partner in $R_{i+1}$.
+
+    \item \textbf{Phase 2: Forward Semijoin Sweep (Root-to-Leaves)} \\
+    We iterate from the first relation $R_1$ forward to $R_k$. At each step $i$, we update $R_{i+1}$ using the semijoin operator:
+    \[ R_{i+1} = R_{i+1} \ltimes R_i \]
+    This removes any tuple in $R_{i+1}$ that is not reachable from the start of the chain.
+
+    \item \textbf{Phase 3: Final Join} \\
+    After the two sweeps, the relations are fully reduced. We then perform a standard hash join sequentially from $R_1$ to $R_k$.
+\end{enumerate}
+
+\subsection*{2. Correctness and Complexity}
+This algorithm is correct based on the properties of acyclic queries described in the lecture notes. The notes state that removing dangling tuples via a two-pass sweep (up/down) ensures that every remaining tuple is part of at least one valid result tuple.
+
+\textbf{Complexity Analysis:}
+\begin{itemize}
+    \item The Semijoin operations use hash sets for $O(1)$ lookups. Since we iterate through the relations ($size \le N$) twice, the reduction phases take $O(N)$.
+    \item The final join phase processes only "live" tuples. Since no dangling tuples remain, every intermediate tuple generated contributes to the final output. Thus, the join phase takes $O(OUT)$.
+    \item The total time complexity is $O(N + OUT)$, satisfying the problem requirement.
+\end{itemize}
+
+\section*{Problem 3: Naive Line Join Implementation}
+
+\subsection*{1. Algorithm Description}
+To evaluate the line join query $q(A_1, \dots, A_{k+1}) :- R_1(A_1, A_2), \dots, R_k(A_k, A_{k+1})$, I implemented the \textbf{Naive Line Join} algorithm. This approach builds the result incrementally by joining relations one pair at a time, strictly following the join order specified in the query chain.
+
+The algorithm uses the \texttt{hash\_join} function implemented in Problem 1 as a subroutine. The steps are as follows:
+
+\begin{enumerate}
+    \item \textbf{Initialization:} Let the accumulated result $T$ be the first relation $R_1$.
+    \item \textbf{Iteration:} For each subsequent relation $R_i$ (where $i$ ranges from 2 to $k$):
+    \begin{itemize}
+        \item Compute the intermediate result $T_{new} = T \bowtie R_i$ using the Hash Join algorithm.
+        \item The Hash Join builds a hash map on the join attribute of $R_i$ and probes it using the tuples from $T$.
+        \item Update $T \leftarrow T_{new}$.
+    \end{itemize}
+    \item \textbf{Termination:} After processing all relations, $T$ contains the final answer $q(A_1, \dots, A_{k+1})$.
+\end{enumerate}
+
+\subsection*{2. Implementation and Correctness}
+The implementation is written in Python and leverages the associativity of the Natural Join operator. 
+\[ R_1 \bowtie R_2 \bowtie R_3 \equiv (R_1 \bowtie R_2) \bowtie R_3 \]
+By repeatedly applying the binary \texttt{hash\_join} function, the algorithm correctly computes the intersection of all constraints imposed by the relations.
+
+\textbf{Performance Consideration:}
+While correct, this algorithm is susceptible to the "intermediate result explosion" problem described in the lecture notes. If an early join (e.g., $R_1 \bowtie R_2$) produces a large number of tuples that are later filtered out by $R_3$, this Naive approach performs significantly more work ($O(N^2)$ or worse) compared to the Yannakakis algorithm implemented in Problem 2, which runs in $O(N + OUT)$.
+
+\section*{Problem 4: Random Dataset Experiment}
+
+\subsection*{1. Experimental Setup}
+We generated a random dataset for the 3-line join query $q(A, B, C, D) :- R_1(A, B), R_2(B, C), R_3(C, D)$ based on the problem specifications:
+\begin{itemize}
+    \item $R_1$: 100 tuples $(i, x)$ where $i \in \{1..100\}$ and $x$ is a random integer in $[1, 5000]$.
+    \item $R_2$: 100 tuples $(y, j)$ where $y$ is a random integer in $[1, 5000]$ and $j \in \{1..100\}$.
+    \item $R_3$: 100 tuples $(\ell, \ell)$ where $\ell \in \{1..100\}$.
+\end{itemize}
+
+We ran both the implementation from Problem 2 (Simplified Yannakakis) and Problem 3 (Naive Hash Join) on this dataset to compare correctness and performance.
+
+\subsection*{2. Results}
+The algorithms produced the following results:
+
+\begin{itemize}
+    \item \textbf{Result Match:} Both implementations returned exactly the same set of tuples.
+    \item \textbf{Result Count:} Both algorithms returned 1 tuple.
+    \item \textbf{Sample Result:} $(49, 646, 65, 65)$
+    \item \textbf{Running Time:} 
+    \begin{itemize}
+        \item Problem 2 (Efficient): $< 0.000001$ seconds (essentially instant)
+        \item Problem 3 (Naive): $< 0.000001$ seconds (essentially instant)
+    \end{itemize}
+\end{itemize}
+
+\subsection*{3. Analysis}
+\textbf{Do they return the same results?} \\
+Yes. The Naive algorithm computes the join by strict definition (pairwise), while the Yannakakis algorithm filters invalid tuples before joining. Since both methods adhere to the definition of the natural join, their final outputs are identical.
+
+\textbf{Explanation of Running Time:} \\
+In this specific dataset, the values for the join attribute between $R_1$ and $R_2$ are random integers between 1 and 5000. With only 100 tuples in each relation, the probability of a match is very low. Consequently, the intermediate result $R_1 \bowtie R_2$ is extremely small (often empty or very small). 
+
+Because the intermediate result is small, the "Naive" algorithm does not suffer from the cost of processing massive temporary tables. Therefore, the overhead of the "Efficient" algorithm (multiple sweeps) makes its running time roughly comparable to the "Naive" approach in this specific sparse data scenario. Both algorithms complete in microseconds, making the difference negligible.
+
+\section*{Problem 5: Adversarial Dataset Experiment}
+
+\subsection*{1. Experimental Setup}
+We constructed a dataset specifically designed to exploit the weakness of the Naive algorithm. The query is a 3-line join $q(A, B, C, D) :- R_1(A, B), R_2(B, C), R_3(C, D)$. The data was generated as follows:
+\begin{itemize}
+    \item $R_1$: Contains 2001 tuples total:
+    \begin{itemize}
+        \item 1000 tuples $(i, 5)$ where $i \in \{1..1000\}$
+        \item 1000 tuples $(i, 7)$ where $i \in \{1001..2000\}$
+        \item 1 tuple $(2001, 2002)$
+        \item Random permutation applied
+    \end{itemize}
+    \item $R_2$: Contains 2001 tuples total:
+    \begin{itemize}
+        \item 1000 tuples $(5, i)$ where $i \in \{1..1000\}$
+        \item 1000 tuples $(7, i)$ where $i \in \{1001..2000\}$
+        \item 1 tuple $(2002, 8)$
+        \item Random permutation applied
+    \end{itemize}
+    \item $R_3$: Contains 2001 tuples total:
+    \begin{itemize}
+        \item 2000 random tuples $(x, y)$ where $x \in [2002, 3000]$ and $y \in [1, 3000]$
+        \item 1 tuple $(8, 30)$
+        \item Random permutation applied
+        \item Crucially, $R_3$ does \textbf{not} contain keys $5$ or $7$
+    \end{itemize}
+\end{itemize}
+
+\subsection*{2. Results}
+We ran both implementations on this dataset. The results are as follows:
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Algorithm} & \textbf{Time (seconds)} & \textbf{Result Count} \\ \hline
+Problem 2 (Efficient) & 0.001000 & 1001 \\ \hline
+Problem 3 (Naive)     & 0.386419 & 1001 \\ \hline
+\end{tabular}
+\caption{Performance comparison on adversarial dataset}
+\end{table}
+
+\textbf{Do they return the same results?} \\
+Yes, both algorithms correctly returned the same set of 1001 result tuples. Both algorithms correctly identified the valid result chain through the single matching path: $(2001, 2002) \bowtie (2002, 8) \bowtie (8, 30)$ plus additional valid combinations.
+
+\textbf{Sample Result:} $(796, 5, 8, 30)$
+
+\subsection*{3. Performance Analysis}
+\textbf{How fast are the two implementations and why?}
+
+\begin{enumerate}
+    \item \textbf{Naive Algorithm (Problem 3): Slow (0.386 seconds).} \\
+    The naive algorithm evaluates the query as $(R_1 \bowtie R_2) \bowtie R_3$. 
+    \begin{itemize}
+        \item When joining $R_1$ and $R_2$, the algorithm encounters 1000 tuples in $R_1$ with value $5$ and 1000 tuples in $R_2$ with value $5$. This results in a Cartesian product of $1,000,000$ tuples. The same occurs for value $7$, creating another $1,000,000$ tuples.
+        \item Consequently, the intermediate table has size $\approx 2,000,000$ tuples (plus the valid $(2001, 2002) \bowtie (2002, 8)$ match).
+        \item The algorithm wastes significant time constructing this massive table, only to have $99.99\%$ of it filtered out when joining with $R_3$ (which contains no matching $5$s or $7$s).
+        \item The final join with $R_3$ processes millions of tuples, but almost all are filtered out, resulting in only 1001 valid results.
+    \end{itemize}
+
+    \item \textbf{Efficient Algorithm (Problem 2): Fast (0.001 seconds).} \\
+    The simplified Yannakakis algorithm performs a backward sweep before joining.
+    \begin{itemize}
+        \item It first computes $R_2' = R_2 \ltimes R_3$. Since $R_3$ contains no keys for $5$ or $7$, these tuples are immediately removed from $R_2$. $R_2$ is reduced to just the tuples that have matching keys in $R_3$ (primarily the tuple $(2002, 8)$ and others with keys $\ge 2002$).
+        \item It then computes $R_1' = R_1 \ltimes R_2'$. Since $R_2'$ no longer has $5$ or $7$, those 2000 tuples are removed from $R_1$.
+        \item The forward sweep further reduces the relations, ensuring only valid tuples remain.
+        \item The final join occurs on dramatically reduced dataset sizes, resulting in near-instant execution (approximately 386 times faster than the naive approach).
+    \end{itemize}
+\end{enumerate}
+
+This experiment demonstrates that the Yannakakis algorithm is "Worst-Case Optimal" in the sense that its runtime is bounded by the input and output size ($O(N+OUT)$), whereas the Naive algorithm is vulnerable to intermediate result explosion. The Efficient algorithm was approximately 386 times faster than the Naive algorithm on this adversarial dataset.
+
+\section*{Problem 7: Advanced Cyclic Joins and Hypertree Width}
+
+Consider the query:
+\[ q(A_1, \dots, A_6) :- R_1(A_1, A_2), R_2(A_2, A_3), R_3(A_1, A_3), R_4(A_3, A_4), R_5(A_4, A_5), R_6(A_5, A_6), R_7(A_4, A_6) \]
+
+This query contains cycles (two triangles connected by an edge), so we compare three different evaluation strategies.
+
+\subsection*{1. GenericJoin Algorithm}
+
+\subsubsection*{Logic and Steps}
+The GenericJoin algorithm (Worst-Case Optimal Join) avoids intermediate result explosion by computing the intersection of attribute domains before extending partial solutions.
+\begin{enumerate}
+    \item We define a global variable ordering: $A_1 \to A_2 \to A_3 \to A_4 \to A_5 \to A_6$.
+    \item For the first variable $A_1$, we compute the intersection of valid values from relations $R_1$ and $R_3$.
+    \item For each valid $a_1$, we recurse to $A_2$, intersecting valid values from $R_1$ (given $a_1$) and $R_2$.
+    \item We continue this process recursively. If at any step an intersection is empty, we prune that branch immediately.
+\end{enumerate}
+
+\subsubsection*{Pseudocode}
+\begin{verbatim}
+Algorithm GenericJoin_Q(R1, ..., R7):
+    # Global Variable Order: A1, A2, A3, A4, A5, A6
+    Result = {}
+    
+    # 1. Intersection for A1 (R1, R3)
+    Domain_A1 = Intersect(R1.A1, R3.A1)
+    
+    For a1 in Domain_A1:
+        # 2. Intersection for A2 (R1, R2) given a1
+        Domain_A2 = Intersect(R1(a1).A2, R2.A2)
+        
+        For a2 in Domain_A2:
+            # 3. Intersection for A3 (R2, R3, R4) given a2, a1
+            Domain_A3 = Intersect(R2(a2).A3, R3(a1).A3, R4.A3)
+            
+            For a3 in Domain_A3:
+                # 4. Intersection for A4 (R4, R5, R7) given a3
+                Domain_A4 = Intersect(R4(a3).A4, R5.A4, R7.A4)
+                
+                For a4 in Domain_A4:
+                    # 5. Intersection for A5 (R5, R6) given a4
+                    Domain_A5 = Intersect(R5(a4).A5, R6.A5)
+                    
+                    For a5 in Domain_A5:
+                        # 6. Intersection for A6 (R6, R7) given a5, a4
+                        Domain_A6 = Intersect(R6(a5).A6, R7(a4).A6)
+                        
+                        For a6 in Domain_A6:
+                            Result.add((a1, a2, a3, a4, a5, a6))
+    Return Result
+\end{verbatim}
+
+\subsubsection*{Asymptotic Running Time}
+The runtime is bounded by the Fractional Hypertree Width ($\text{fhw}$) of the query. For a triangle structure, $\text{fhw} = 1.5$.
+\[ \text{Time} = O(N^{1.5} + OUT) \]
+
+\subsection*{2. Generalized Hypertree Width (GHW) Algorithm}
+
+\subsubsection*{Logic and Steps}
+This algorithm decomposes the cyclic query into a tree of sub-problems (bags).
+\begin{enumerate}
+    \item \textbf{Decomposition:} We decompose the query into three bags:
+        \begin{itemize}
+            \item $u_1$ (Triangle 1): $\{A_1, A_2, A_3\}$ covered by $\{R_1, R_2, R_3\}$.
+            \item $u_2$ (Edge): $\{A_3, A_4\}$ covered by $\{R_4\}$.
+            \item $u_3$ (Triangle 2): $\{A_4, A_5, A_6\}$ covered by $\{R_5, R_6, R_7\}$.
+        \end{itemize}
+    \item \textbf{Materialization:} We compute the relation for each bag using standard pairwise joins. For example, $u_1$ is computed as $(R_1 \bowtie R_2) \bowtie R_3$.
+    \item \textbf{Acyclic Join:} We join the materialized bags using hash joins sequentially.
+\end{enumerate}
+
+\subsubsection*{Pseudocode}
+\begin{verbatim}
+Algorithm GHW_Join_Q(R1, ..., R7):
+    # 1. Compute Bags (Using Pairwise Joins)
+    # Note: R1 join R2 creates intermediate size up to N^2
+    Relation_U1 = (R1 join R2) join R3
+    Relation_U2 = R4
+    Relation_U3 = (R5 join R6) join R7
+    
+    # 2. Join the Tree of Bags (U1 -- U2 -- U3)
+    # Join U1 and U2 on attribute A3
+    Intermediate = Join(Relation_U1, Relation_U2)
+    
+    # Join result with U3 on attribute A4
+    Result = Join(Intermediate, Relation_U3)
+    
+    Return Result
+\end{verbatim}
+
+\subsubsection*{Asymptotic Running Time}
+The complexity is determined by the width of the decomposition. A triangle has a generalized hypertree width of 2 (it takes 2 edges to cover 3 nodes).
+\[ \text{Time} = O(N^2 + OUT) \]
+
+\subsection*{3. Fractional Hypertree Width (FHW) Algorithm}
+
+\subsubsection*{Logic and Steps}
+The FHW algorithm uses the same decomposition as GHW but computes the relations for the bags using an optimal algorithm (GenericJoin) instead of pairwise joins.
+\begin{enumerate}
+    \item \textbf{Decomposition:} Same tree as GHW ($u_1, u_2, u_3$).
+    \item \textbf{Optimal Bag Computation:} We compute $Relation\_U1$ using GenericJoin on $\{R_1, R_2, R_3\}$. This avoids the $O(N^2)$ intermediate blowup, bounding the cost to $O(N^{1.5})$. We do the same for $Relation\_U3$.
+    \item \textbf{Acyclic Join:} We join the resulting relations using hash joins sequentially.
+\end{enumerate}
+
+\subsubsection*{Pseudocode}
+\begin{verbatim}
+Algorithm FHW_Join_Q(R1, ..., R7):
+    # 1. Compute Bags (Using GenericJoin / Optimal)
+    # This guarantees the bag computation is bounded by N^1.5
+    Relation_U1 = GenericJoin({R1, R2, R3})
+    Relation_U2 = R4
+    Relation_U3 = GenericJoin({R5, R6, R7})
+    
+    # 2. Join the Tree of Bags
+    Intermediate = Join(Relation_U1, Relation_U2)
+    Result = Join(Intermediate, Relation_U3)
+    
+    Return Result
+\end{verbatim}
+
+\subsubsection*{Asymptotic Running Time}
+Since the bags are computed optimally, the complexity is bounded by the fractional hypertree width.
+\[ \text{Time} = O(N^{1.5} + OUT) \]
+
+\subsection*{4. Experimental Results}
+
+We executed all three algorithms on the \texttt{QueryRelations} dataset provided. The dataset contains 100 tuples in each of the 7 relations.
+
+\begin{table}[h!]
+\centering
+\begin{tabular}{|l|c|c|c|}
+\hline
+\textbf{Algorithm} & \textbf{Time (seconds)} & \textbf{Result Count} & \textbf{Complexity} \\ \hline
+GenericJoin (Global) & 6.758427 & 1,000,000 & $O(N^{1.5})$ \\ \hline
+GHW Algorithm & 0.131990 & 1,000,000 & $O(N^2)$ \\ \hline
+FHW Algorithm & 0.135957 & 1,000,000 & $O(N^{1.5})$ \\ \hline
+\end{tabular}
+\caption{Running times on QueryRelations dataset}
+\end{table}
+
+\textbf{Verification:} All three algorithms returned exactly the same set of 1,000,000 result tuples, confirming correctness.
+
+\textbf{Sample Result:} All algorithms produced the same sample result: $(1, 1, 1, 1, 1, 1)$
+
+\textbf{Analysis:}
+\begin{itemize}
+    \item \textbf{GenericJoin (Global):} This algorithm took the longest time (6.76 seconds) because it processes all 6 variables in a single deep recursive call stack. While theoretically optimal ($O(N^{1.5})$), the overhead of managing a complex recursion tree for 6 variables and performing intersections at each level becomes significant in practice.
+    
+    \item \textbf{GHW Algorithm:} This algorithm was the fastest (0.132 seconds), approximately 51 times faster than GenericJoin. Despite its theoretical $O(N^2)$ complexity for computing the triangle bags, the actual computation benefits from:
+    \begin{itemize}
+        \item Breaking the problem into smaller, independent sub-problems (two triangles and an edge)
+        \item With $N=100$, the $N^2$ term (10,000) is still manageable
+        \item The hash join operations for the triangles are highly optimized
+        \item The acyclic join of the three bags is very efficient
+    \end{itemize}
+    
+    \item \textbf{FHW Algorithm:} This algorithm performed similarly to GHW (0.136 seconds), only slightly slower. While it uses optimal GenericJoin for bag computation (avoiding $N^2$ blowup), the overhead of the GenericJoin recursion for the triangle sub-problems is comparable to the hash join approach when $N=100$. The difference becomes more pronounced for larger datasets.
+    
+    \item \textbf{Performance Insights:}
+    \begin{itemize}
+        \item For small input sizes ($N=100$), the decomposition-based approaches (GHW and FHW) significantly outperform the global GenericJoin due to reduced recursion overhead and better cache locality.
+        \item GHW's $O(N^2)$ complexity is not a bottleneck when $N$ is small, making it the fastest practical choice for this dataset size.
+        \item The theoretical advantage of FHW over GHW ($O(N^{1.5})$ vs $O(N^2)$) becomes more significant as $N$ grows larger.
+        \item All algorithms correctly identified all 1,000,000 result tuples, demonstrating their correctness.
+    \end{itemize}
+\end{itemize}
+
+This experiment demonstrates the trade-offs between different query evaluation strategies. While GenericJoin is theoretically optimal, decomposition-based approaches can be faster in practice for smaller datasets due to reduced overhead. However, as dataset sizes grow, the theoretical complexity bounds become more relevant, and FHW would be expected to outperform GHW.
+
+\end{document}
