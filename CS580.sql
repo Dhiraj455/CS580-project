@@ -1,0 +1,35 @@
+-- 1. Setup Database
+CREATE DATABASE IF NOT EXISTS cs580_project;
+USE cs580_project;
+
+DROP TABLE IF EXISTS R1;
+DROP TABLE IF EXISTS R2;
+DROP TABLE IF EXISTS R3;
+
+-- 2. Create Tables
+CREATE TABLE R1 (A INT, B INT);
+CREATE TABLE R2 (B INT, C INT);
+CREATE TABLE R3 (C INT, D INT);
+
+-- 3. Load Data
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/R1.csv' 
+INTO TABLE R1 FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n' IGNORE 1 ROWS;
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/R2.csv' 
+INTO TABLE R2 FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n' IGNORE 1 ROWS;
+
+LOAD DATA INFILE 'C:/ProgramData/MySQL/MySQL Server 8.0/Uploads/R3.csv' 
+INTO TABLE R3 FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n' IGNORE 1 ROWS;
+
+-- 4. Enable Profiling to measure time
+SET profiling = 1;
+
+-- 5. Run the 3-line Join
+SELECT COUNT(*) 
+FROM R1 
+JOIN R2 ON R1.B = R2.B 
+JOIN R3 ON R2.C = R3.C;
+
+-- 6. Check Execution Time
+SHOW PROFILES; 
+--returns: duration = 0.27872300
